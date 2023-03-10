@@ -296,7 +296,7 @@ def execute_async_command(
     # at the project root.
     dbt_server_root = os.getcwd()
     try:
-        os.chdir(root_path)
+        # os.chdir(root_path)
         dbt = dbtRunner(project, profile, manifest)
         _, _ = dbt.invoke(new_command)
     except Exception as e:
