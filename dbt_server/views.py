@@ -140,6 +140,11 @@ if ALLOW_ORCHESTRATED_SHUTDOWN:
         )
 
 
+@app.get("/ready")
+async def ready():
+    return JSONResponse(status_code=200, content={})
+
+
 @app.post("/ready")
 async def ready():
     return JSONResponse(status_code=200, content={})
