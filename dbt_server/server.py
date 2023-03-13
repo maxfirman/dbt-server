@@ -1,17 +1,19 @@
 # Need to run this as early in the server's startup as possible
 import os
 from typing import Optional
+
 from pydantic import BaseModel
-from dbt_server import tracer  # noqa
+from sqlalchemy.exc import OperationalError
 
 from dbt_server import models
+from dbt_server import tracer  # noqa
 from dbt_server.database import engine
-from dbt_server.services import dbt_service, filesystem_service
-from dbt_server.views import app
-from dbt_server.logging import DBT_SERVER_LOGGER as logger, configure_uvicorn_access_log
-from dbt_server.state import LAST_PARSED
 from dbt_server.exceptions import StateNotFoundException
-from sqlalchemy.exc import OperationalError
+from dbt_server.logging import DBT_SERVER_LOGGER as logger, configure_uvicorn_access_log
+from dbt_server.services import dbt_service
+from dbt_server.services.filesystem_service import get_root_path, FileSystemService, get_path
+from dbt_server.state import LAST_PARSED
+from dbt_server.views import app
 
 # The default checkfirst=True should handle this, however we still
 # see a table exists error from time to time
@@ -38,9 +40,10 @@ def startup_cache_initialize():
 
     # If an exception is raised in this method, the dbt-server will fail to start up.
     # Be careful here :)
-    latest_state_id = filesystem_service.get_latest_state_id(None)
-    latest_project_path = filesystem_service.get_latest_project_path()
-    root_path = filesystem_service.get_root_path(latest_state_id, latest_project_path)
+    filesystem = FileSystemService.create()
+    latest_state_id = filesystem.get_latest_state_id(None)
+    latest_project_path = filesystem.get_latest_project_path()
+    root_path = get_root_path(latest_state_id, latest_project_path)
 
     if root_path is None:
         logger.info(
@@ -48,15 +51,15 @@ def startup_cache_initialize():
         )
         return
 
-    manifest_path = filesystem_service.get_path(root_path, "manifest.msgpack")
+    manifest_path = get_path(root_path, "manifest.msgpack")
     logger.info(f"[STARTUP] Loading manifest from file system (path={root_path})")
 
     try:
-        manifest = dbt_service.deserialize_manifest(manifest_path)
+        manifest = dbt_service.deserialize_manifest(filesystem, manifest_path)
     except (TypeError, ValueError) as e:
         logger.error(f"[STARTUP] Could not deserialize manifest: {str(e)}")
         return
-    except (StateNotFoundException):
+    except StateNotFoundException:
         logger.error(
             f"[STARTUP] Specified root path not found - not loading manifest (path={root_path})"
         )
@@ -67,7 +70,7 @@ def startup_cache_initialize():
         target_name = None
     config_args = ConfigArgs(target=target_name)
 
-    manifest_size = filesystem_service.get_size(manifest_path)
+    manifest_size = filesystem.get_size(manifest_path)
     config = dbt_service.create_dbt_config(root_path, config_args)
 
     LAST_PARSED.set_last_parsed_manifest(

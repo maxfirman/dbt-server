@@ -4,15 +4,16 @@ import uuid
 from inspect import getmembers, isfunction
 from typing import List, Optional, Any
 
+import dbt.adapters.factory
+import dbt.lib
 # dbt Core imports
 import dbt.tracking
-import dbt.lib
-import dbt.adapters.factory
 import requests
 from requests.adapters import HTTPAdapter
-
 from sqlalchemy.orm import Session
 from urllib3 import Retry
+
+from dbt_server.services.filesystem_service import FileSystemService
 
 # These exceptions were removed in v1.4
 try:
@@ -37,7 +38,6 @@ from dbt.lib import (
     SqlCompileRunnerNoIntrospection,
 )
 
-
 from dbt.parser.sql import SqlBlockParser
 from dbt.parser.manifest import process_node
 
@@ -53,7 +53,6 @@ from dbt_server.helpers import get_profile_name
 from dbt_server import crud, tracer, models
 from dbt.lib import load_profile_project
 from dbt.cli.main import dbtRunner
-
 
 from dbt_server.exceptions import (
     InvalidConfigurationException,
@@ -77,7 +76,6 @@ class Args(BaseModel):
 
 
 def inject_dd_trace_into_core_lib():
-
     for attr_name, attr in getmembers(dbt.lib):
         if not isfunction(attr):
             continue
@@ -174,15 +172,15 @@ def parse_to_manifest(project_path, args):
 
 
 @tracer.wrap
-def serialize_manifest(manifest, serialize_path, partial_parse_path):
+def serialize_manifest(filesystem: FileSystemService, manifest, serialize_path, partial_parse_path):
     manifest_msgpack = dbt_serialize_manifest(manifest)
-    filesystem_service.write_file(serialize_path, manifest_msgpack)
-    filesystem_service.write_file(partial_parse_path, manifest_msgpack)
+    filesystem.write_file(serialize_path, manifest_msgpack)
+    filesystem.write_file(partial_parse_path, manifest_msgpack)
 
 
 @tracer.wrap
-def deserialize_manifest(serialize_path):
-    manifest_packed = filesystem_service.read_serialized_manifest(serialize_path)
+def deserialize_manifest(filesystem: FileSystemService, serialize_path):
+    manifest_packed = filesystem.read_serialized_manifest(serialize_path)
     return dbt_deserialize_manifest(manifest_packed)
 
 
@@ -243,13 +241,13 @@ def compile_sql(manifest, config, parser, sql):
 
 
 def execute_async_command(
-    command: List,
-    task_id: str,
-    root_path: str,
-    manifest: Any,
-    db: Session,
-    state_id: Optional[str] = None,
-    callback_url: Optional[str] = None,
+        command: List,
+        task_id: str,
+        root_path: str,
+        manifest: Any,
+        db: Session,
+        state_id: Optional[str] = None,
+        callback_url: Optional[str] = None,
 ) -> None:
     db_task = crud.get_task(db, task_id)
     # For commands, only the log file destination directory is sent to --log-path
