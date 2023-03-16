@@ -1,11 +1,10 @@
-import re
-import requests
-import time
-import sys
 import hashlib
-import os
 import json
+import os
+import re
+import sys
 
+import requests
 import yaml
 
 # CALL THIS SCRIPT WITH A PROJECT_DIR, OR FROM THE ROOT OF A DBT PROJECT
@@ -16,11 +15,12 @@ if len(sys.argv) > 1:
 else:
     project_dir = None
 
-
-SERVER_HOST_PUSH = "http://127.0.0.1:8000/push"
-SERVER_HOST_PARSE = "http://127.0.0.1:8000/parse"
-SERVER_HOST_COMPILE = "http://127.0.0.1:8000/compile"
-SERVER_HOST_MEM = "http://127.0.0.1:8000/"
+# SERVER_HOST = "https://dp-model.dbt.dev.awstrp.net"
+SERVER_HOST = "http://127.0.0.1:8000"
+SERVER_HOST_PUSH = f"{SERVER_HOST}/push"
+SERVER_HOST_PARSE = f"{SERVER_HOST}/parse"
+SERVER_HOST_COMPILE = f"{SERVER_HOST}/compile"
+SERVER_HOST_MEM = f"{SERVER_HOST}/"
 
 VALID_FILE_EXTENSIONS = re.compile(r"^.+\.(sql|yml|yaml|md|csv|py|dbtignore)$")
 
@@ -244,7 +244,7 @@ state_id = get_hash(state)
 req = requests.post(SERVER_HOST_PUSH, json={"state_id": state_id, "body": state})
 print("PUSH", req.status_code)
 
-# POST /parse
+# # POST /parse
 req = requests.post(SERVER_HOST_PARSE, json={"state_id": state_id})
 print("PARSE", req.status_code)
 

@@ -12,7 +12,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from typing import List, Optional, Dict, Any
 
-from dbt_server import crud, schemas, tracer, helpers
+from dbt_server import crud, schemas, tracer, helpers, s3
 from dbt_server.services import filesystem_service
 from dbt_server.logging import DBT_SERVER_LOGGER as logger
 from dbt_server.models import TaskState
@@ -32,7 +32,6 @@ from sqlalchemy.orm import Session
 # only a small amount of events to prevent too much memory
 # from being used.
 dbt.events.functions.EVENT_HISTORY = deque(maxlen=10)
-
 
 # Enable `ALLOW_ORCHESTRATED_SHUTDOWN` to instruct dbt server to
 # ignore a first SIGINT or SIGTERM and enable a `/shutdown` endpoint
@@ -80,7 +79,7 @@ class DbtCommandArgs(BaseModel):
 
 @app.exception_handler(InvalidConfigurationException)
 async def configuration_exception_handler(
-    request: Request, exc: InvalidConfigurationException
+        request: Request, exc: InvalidConfigurationException
 ):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
@@ -124,7 +123,6 @@ async def handled_dbt_error(request: Request, exc: InvalidRequestException):
 
 
 if ALLOW_ORCHESTRATED_SHUTDOWN:
-
     @app.post("/shutdown")
     def shutdown():
         # raising a SIGKILL logs some
@@ -191,6 +189,8 @@ def parse_project(args: ParseArgs):
 
     tracer.add_tags_to_current_span({"manifest_size": state.manifest_size})
 
+    s3.put_cache()
+
     return JSONResponse(
         status_code=200,
         content={
@@ -202,9 +202,9 @@ def parse_project(args: ParseArgs):
 
 @app.post("/async/dbt")
 async def dbt_entry_async(
-    args: DbtCommandArgs,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(crud.get_db),
+        args: DbtCommandArgs,
+        background_tasks: BackgroundTasks,
+        db: Session = Depends(crud.get_db),
 ):
     # example body: {"state_id": "123", "command":["run", "--threads", 1]}
     state = StateController.load_state(args)
@@ -315,8 +315,8 @@ def get_manifest_metadata(state):
 
 @app.get("/status/{task_id}")
 def get_task_status(
-    task_id: str,
-    db: Session = Depends(crud.get_db),
+        task_id: str,
+        db: Session = Depends(crud.get_db),
 ):
     task = crud.get_task(db, task_id)
     return JSONResponse(status_code=200, content={"status": task.state})

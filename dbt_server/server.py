@@ -2,7 +2,7 @@
 import os
 from typing import Optional
 from pydantic import BaseModel
-from dbt_server import tracer  # noqa
+from dbt_server import tracer, s3  # noqa
 
 from dbt_server import models
 from dbt_server.database import engine
@@ -83,4 +83,5 @@ async def startup_event():
     # This method is `async` intentionally to block serving until startup is complete
     configure_uvicorn_access_log()
     dbt_service.inject_dd_trace_into_core_lib()
+    s3.get_cache()
     startup_cache_initialize()
