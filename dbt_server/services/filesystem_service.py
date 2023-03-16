@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 
+import s3fs
 from fsspec import AbstractFileSystem, filesystem
 
 from dbt_server import tracer
@@ -67,6 +68,9 @@ def get_path(*path_parts):
 
 def create_filesystem() -> AbstractFileSystem:
     protocol = os.environ.get("FILESYSTEM_PROTOCOL", "file")
+    if protocol == "s3-localstack":
+        endpoint_url = "http://127.0.0.1:4566"
+        return s3fs.S3FileSystem(endpoint_url=endpoint_url, client_kwargs={'endpoint_url': endpoint_url})
     return filesystem(protocol)
 
 
@@ -100,7 +104,7 @@ class FileSystemService:
     def write_file(self, path, contents):
         self.ensure_dir_exists(path)
 
-        with open(path, "wb") as fh:
+        with self.fs.open(path, "wb") as fh:
             if isinstance(contents, str):
                 contents = contents.encode("utf-8")
             fh.write(contents)
@@ -136,7 +140,7 @@ class FileSystemService:
                 get_root_path(previous_state_id), "target", PARTIAL_PARSE_FILE
             )
             new_partial_parse_path = get_path(root_path, "target", PARTIAL_PARSE_FILE)
-            if not os.path.exists(previous_partial_parse_path):
+            if not self.fs.exists(previous_partial_parse_path):
                 return
             self.copy_file(previous_partial_parse_path, new_partial_parse_path)
 
@@ -146,7 +150,7 @@ class FileSystemService:
             path = os.path.abspath(get_latest_state_file_path())
             if not self.fs.exists(path):
                 return None
-            with open(path, "r") as latest_path_file:
+            with self.fs.open(path, "r") as latest_path_file:
                 state_id = latest_path_file.read().strip()
         return state_id
 
@@ -155,7 +159,7 @@ class FileSystemService:
         path = os.path.abspath(get_latest_project_path_file_path())
         if not self.fs.exists(path):
             return None
-        with open(path, "r") as latest_path_file:
+        with self.fs.open(path, "r") as latest_path_file:
             project_path = latest_path_file.read().strip()
         return project_path
 
@@ -163,12 +167,12 @@ class FileSystemService:
     def update_state_id(self, state_id):
         path = os.path.abspath(get_latest_state_file_path())
         self.ensure_dir_exists(path)
-        with open(path, "w+") as latest_path_file:
+        with self.fs.open(path, "w+") as latest_path_file:
             latest_path_file.write(state_id)
 
     @tracer.wrap
     def update_project_path(self, project_path):
         path = os.path.abspath(get_latest_project_path_file_path())
         self.ensure_dir_exists(path)
-        with open(path, "w+") as latest_path_file:
+        with self.fs.open(path, "w+") as latest_path_file:
             latest_path_file.write(project_path)
