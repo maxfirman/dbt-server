@@ -59,11 +59,11 @@ def _send_state_callback(callback_url: str, task_id: str, status: str) -> None:
 
 
 def _update_state(
-    task: Any,
-    task_id: str,
-    state: str,
-    meta: Dict = None,
-    callback_url: Optional[str] = None,
+        task: Any,
+        task_id: str,
+        state: str,
+        meta: Dict = None,
+        callback_url: Optional[str] = None,
 ):
     """Updates task state to `state` with `meta` infomation. Triggers callback
     if `callback_url` is set.
@@ -83,11 +83,10 @@ def _update_state(
 
 
 def _invoke_runner(
-    task: Any,
-    task_id: str,
-    command: List[str],
-    project_dir: Optional[str],
-    callback_url: Optional[str],
+        task: Any,
+        task_id: str,
+        command: List[str],
+        callback_url: Optional[str],
 ):
     """Invokes dbt runner with `command`, update task state if any exception is
     raised.
@@ -96,7 +95,6 @@ def _invoke_runner(
         task: Celery task.
         task_id: Task id, it's required to update task state.
         command: Dbt invocation command list.
-        project_dir: directory to dbt project.
         callback_url: If set, if core raises any error, a callback will be
             triggered."""
 
@@ -162,41 +160,10 @@ def _insert_log_path(command: List[str], task_id: str):
     command.insert(3, LOG_FORMAT_DEFAULT)
 
 
-def _is_command_has_project_dir(command: List[str]) -> bool:
+def is_command_has_project_dir(command: List[str]) -> bool:
     """Returns true if command has --project-dir args."""
     # This approach is not 100% accurate but should be good for most cases.
     return any([PROJECT_DIR_ARGS in item for item in command])
-
-
-def resolve_project_dir(
-    command: List[str], project_dir: Optional[str]
-) -> Optional[str]:
-    """Resolves request `project_path` and append --project-dir to `command` if
-    needed. Returns resolved project directory or None if can't resolve. Raises
-    AssertionError if --project-dir is found in command and project_dir is
-    provided."""
-
-    is_command_has_project_dir = _is_command_has_project_dir(command)
-    if project_dir and is_command_has_project_dir:
-        raise AssertionError(
-            "Confliction: --project-dir is found in command while project_dir field is also set."
-        )
-    if is_command_has_project_dir or project_dir:
-        return project_dir
-    # Fallback to environment variable.
-    default_project_dir = DBT_PROJECT_DIRECTORY.get()
-    return default_project_dir
-
-
-def append_project_dir(command: List[str], project_dir: Optional[str]) -> None:
-    """Resolves project directory and appends to command if needed. See
-    PostInvocationRequest.project_dir for more details.
-    """
-    if _is_command_has_project_dir(command):
-        return
-    resolved_project_dir = resolve_project_dir(command, project_dir)
-    if resolved_project_dir is not None:
-        command.extend([PROJECT_DIR_ARGS, resolved_project_dir])
 
 
 def raise_exception(*_):
@@ -204,16 +171,14 @@ def raise_exception(*_):
 
 
 def _invoke(
-    task: Any,
-    command: List[str],
-    project_dir: Optional[str] = None,
-    callback_url: Optional[str] = None,
+        task: Any,
+        command: List[str],
+        callback_url: Optional[str] = None,
 ):
     """Invokes dbt command.
     Args:
         command: Dbt commands that will be executed, e.g. ["run",
             "--project-dir", "/a/b/jaffle_shop"].
-        project_dir: directory to dbt project
         callback_url: String, if set any time the task status is updated, worker
             will make a callback. Notice it's not complete, in some cases task
             status may be updated but we are not able to trigger callback, e.g.
@@ -232,7 +197,7 @@ def _invoke(
     # monitor abort signal and join with child thread.
 
     p = Process(
-        target=_invoke_runner, args=[task, task_id, command, project_dir, callback_url]
+        target=_invoke_runner, args=[task, task_id, command, callback_url]
     )
     p.start()
     while p.is_alive():
@@ -289,9 +254,8 @@ def _handle_abort(task_id, p, callback_url):
 
 @app.task(bind=True, track_started=True, base=AbortableTask)
 def invoke(
-    self,
-    command: List[str],
-    project_dir: Optional[str] = None,
-    callback_url: Optional[str] = None,
+        self,
+        command: List[str],
+        callback_url: Optional[str] = None,
 ):
-    _invoke(self, command, project_dir, callback_url)
+    _invoke(self, command, callback_url)
