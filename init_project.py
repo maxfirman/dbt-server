@@ -17,10 +17,10 @@ else:
     project_dir = None
 
 
-SERVER_HOST_PUSH = "http://0.0.0.0:8585/push"
-SERVER_HOST_PARSE = "http://0.0.0.0:8585/parse"
-SERVER_HOST_COMPILE = "http://0.0.0.0:8585/compile"
-SERVER_HOST_MEM = "http://0.0.0.0:8585/"
+SERVER_HOST_PUSH = "http://127.0.0.1:8000/push"
+SERVER_HOST_PARSE = "http://127.0.0.1:8000/parse"
+SERVER_HOST_COMPILE = "http://127.0.0.1:8000/compile"
+SERVER_HOST_MEM = "http://127.0.0.1:8000/"
 
 VALID_FILE_EXTENSIONS = re.compile(r"^.+\.(sql|yml|yaml|md|csv|py|dbtignore)$")
 

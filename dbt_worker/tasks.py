@@ -113,8 +113,6 @@ def _invoke_runner(
         # If the project_dir was passed as a command flag, this
         # value will be none. Command will still run properly,
         # artifacts may write to incorrect locations
-        if project_dir:
-            os.chdir(project_dir)
         dbt = dbtRunner()
         result = dbt.invoke(command)
         # dbt-core 1.5.0-latest changes the return type from a tuple to a
