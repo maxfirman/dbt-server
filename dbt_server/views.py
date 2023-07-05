@@ -22,7 +22,7 @@ from copy import deepcopy
 
 from dbt_server import tracer
 from dbt_server.log import DBT_SERVER_LOGGER as logger
-from dbt_server.services.filesystem_service import get_log_path, get_root_path, FileSystemService
+from dbt_server.services.filesystem_service import get_log_path, get_root_path, filesystem_service
 from dbt_server.state import StateController
 from dbt_server.services import dbt_service
 
@@ -190,7 +190,6 @@ async def ready():
 @app.post("/push")
 def push_unparsed_manifest(args: PushProjectArgs):
     # Parse / validate it
-    filesystem_service = FileSystemService.create()
     previous_state_id = filesystem_service.get_latest_state_id(None)
     state_id = filesystem_service.get_latest_state_id(args.state_id)
 

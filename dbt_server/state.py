@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 import threading
 
-from dbt_server.services.filesystem_service import FileSystemService, get_path, get_root_path
+from dbt_server.services.filesystem_service import FileSystemService, get_path, get_root_path, filesystem_service
 
 MANIFEST_LOCK = threading.Lock()
 
@@ -135,7 +135,7 @@ class StateController(object):
             manifest=cached.manifest,
             manifest_size=cached.manifest_size,
             is_manifest_cached=True,
-            filesystem_service=FileSystemService.create()
+            filesystem_service=filesystem_service
         )
 
     @classmethod
@@ -144,7 +144,6 @@ class StateController(object):
         """Loads a manifest from source code in a specified directory based on the
         provided state_id. This method will cache the parsed manifest in memory
         before returning."""
-        filesystem_service = FileSystemService.create()
         root_path = get_root_path(
             parse_args.state_id, parse_args.project_path
         )
@@ -180,7 +179,6 @@ class StateController(object):
             )
             return cls.from_cached(cached)
         # Not in cache - need to go to filesystem to deserialize it
-        filesystem_service = FileSystemService.create()
         state_id = filesystem_service.get_latest_state_id(args.state_id)
 
         project_path = args.project_path if hasattr(args, "project_path") else None

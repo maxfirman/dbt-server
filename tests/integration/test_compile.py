@@ -3,12 +3,11 @@ import unittest
 from unittest.mock import patch, ANY, Mock
 
 from dbt_server.server import app
-from dbt_server.services.filesystem_service import FileSystemService
+from dbt_server.services.filesystem_service import FileSystemService, filesystem_service
 from dbt_server.state import StateController, CachedManifest
 
 from dbt_server.exceptions import dbtCoreCompilationException, StateNotFoundException
 from dbt_server.views import SQLConfig
-
 
 client = TestClient(app)
 
@@ -52,7 +51,7 @@ class CompilationInterfaceTests(unittest.TestCase):
                 manifest=None,
                 manifest_size=0,
                 is_manifest_cached=False,
-                filesystem_service=FileSystemService.create()
+                filesystem_service=filesystem_service,
             )
         )
 

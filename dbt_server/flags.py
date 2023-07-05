@@ -107,3 +107,6 @@ CELERY_LOG_FILE = InMemoryFlag("CELERY_LOG_FILE", "/var/log/celery/celery-all.lo
 DBT_TARGET_PATH = EnvironFlag("DBT_TARGET_PATH")
 # Shared with dbt core, indicates if compile allows introspection.
 DBT_ALLOW_INTROSPECTION = EnvironFlag("__DBT_ALLOW_INTROSPECTION")
+
+FSSPEC_PROTOCOL = InMemoryFlag("FSSPEC_PROTOCOL", "file")
+S3_BUCKET = EnvironFlag("S3_BUCKET")

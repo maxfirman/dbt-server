@@ -1,7 +1,7 @@
 import os
 
 from dbt_server.exceptions import StateNotFoundException
-from dbt_server.services.filesystem_service import FileSystemService
+from dbt_server.services.filesystem_service import filesystem_service
 from dbt_server.state import LAST_PARSED
 from dbt_server.state import CachedManifest
 from dbt_server.state import StateController
@@ -107,7 +107,7 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 True,
-                FileSystemService.create(),
+                filesystem_service,
             ),
         )
 
@@ -133,7 +133,7 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 0,  # manifest_size
                 False,
-                FileSystemService.create(),
+                filesystem_service,
             ),
         )
         mock_get_root_path.assert_called_once_with(TEST_STATE_ID, TEST_PROJECT_PATH)
@@ -151,7 +151,7 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 True,
-                FileSystemService.create(),
+                filesystem_service,
             ),
         )
 
@@ -167,7 +167,7 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 True,
-                FileSystemService.create(),
+                filesystem_service,
             ),
         )
 
@@ -225,7 +225,7 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 False,
-                FileSystemService.create(),
+                filesystem_service,
             ),
         )
         mock_get_root_path.assert_called_once_with(None, TEST_PROJECT_PATH)
@@ -273,7 +273,7 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 False,
-                FileSystemService.create(),
+                filesystem_service,
             ),
         )
         mock_get_root_path.assert_called_once_with(TEST_STATE_ID, None)
@@ -292,7 +292,7 @@ class TestStateController(TestCase):
     def test_serialize_manifest(self, mock_get_size, mock_serialize_manifest):
         serialized_path = f"{TEST_ROOT_PATH}/manifest.msgpack"
         state_controller = StateController(
-            None, None, TEST_ROOT_PATH, TEST_MANIFEST, None, None, FileSystemService.create()
+            None, None, TEST_ROOT_PATH, TEST_MANIFEST, None, None, filesystem_service
         )
         state_controller.serialize_manifest()
         self.assertEqual(state_controller.manifest_size, TEST_MANIFEST_SIZE)
@@ -311,7 +311,7 @@ class TestStateController(TestCase):
             TEST_MANIFEST,
             TEST_MANIFEST_SIZE,
             False,
-            FileSystemService.create(),
+            filesystem_service,
         )
         state_controller.update_cache()
         mock_update_project_path.assert_not_called()
@@ -330,7 +330,7 @@ class TestStateController(TestCase):
             TEST_MANIFEST,
             TEST_MANIFEST_SIZE,
             False,
-            FileSystemService.create(),
+            filesystem_service,
         )
         state_controller.update_cache()
         mock_update_state_id.assert_not_called()

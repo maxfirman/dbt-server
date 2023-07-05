@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from dbt_server.exceptions import StateNotFoundException
 from dbt_server import tracer
 
-import s3fs
 from fsspec import AbstractFileSystem, filesystem
+
+from dbt_server.flags import FSSPEC_PROTOCOL
 
 PARTIAL_PARSE_FILE = "partial_parse.msgpack"
 DEFAULT_WORKING_DIR = "./working-dir"
@@ -133,24 +134,13 @@ def get_path(*path_parts):
     return os.path.join(*path_parts)
 
 
-def _create_filesystem() -> AbstractFileSystem:
-    protocol = os.environ.get("FILESYSTEM_PROTOCOL", "file")
-    if protocol == "s3-localstack":
-        endpoint_url = "http://127.0.0.1:4566"
-        return s3fs.S3FileSystem(
-            endpoint_url=endpoint_url, client_kwargs={"endpoint_url": endpoint_url}
-        )
-    return filesystem(protocol)
-
-
 @dataclass
 class FileSystemService:
     fs: AbstractFileSystem
 
     @classmethod
-    def create(cls) -> "FileSystemService":
-        fs = _create_filesystem()
-        return cls(fs)
+    def create(cls, protocol: str) -> "FileSystemService":
+        return cls(filesystem(protocol))
 
     @tracer.wrap
     def get_size(self, path: str):
@@ -270,3 +260,6 @@ class FileSystemService:
         self._ensure_dir_exists(path)
         with self.fs.open(path, "w+") as latest_path_file:
             latest_path_file.write(project_path)
+
+
+filesystem_service = FileSystemService.create(FSSPEC_PROTOCOL.get())

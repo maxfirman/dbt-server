@@ -30,7 +30,7 @@ except (ModuleNotFoundError, ImportError):
 from dbt.contracts.sql import RemoteCompileResult
 
 # dbt Server imports
-from dbt_server.services.filesystem_service import FileSystemService
+from dbt_server.services.filesystem_service import filesystem_service
 from dbt_server.log import DBT_SERVER_LOGGER as logger
 from dbt_server import tracer
 from dbt.cli.main import dbtRunner
@@ -110,12 +110,12 @@ def parse_to_manifest(project_path, args):
 # to be a lot of state management that I don't want to touch.
 @tracer.wrap
 def serialize_manifest(manifest, serialize_path):
-    FileSystemService.create().write_file(serialize_path, manifest.to_msgpack())
+    filesystem_service.write_file(serialize_path, manifest.to_msgpack())
 
 
 @tracer.wrap
 def deserialize_manifest(serialize_path):
-    manifest_packed = FileSystemService.create().read_serialized_manifest(serialize_path)
+    manifest_packed = filesystem_service.read_serialized_manifest(serialize_path)
     return Manifest.from_msgpack(manifest_packed)
 
 
