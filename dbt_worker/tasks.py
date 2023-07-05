@@ -1,9 +1,10 @@
 from time import sleep, time
 from billiard.context import Process
+from multiprocessing import Queue
 
 import os
 import signal
-from dbt_server.flags import DBT_PROJECT_DIRECTORY
+from fastapi.encoders import jsonable_encoder
 from dbt_worker.app import app
 from dbt_server.logging import get_configured_celery_logger
 from dbt_server.services.filesystem_service import get_task_artifacts_path
@@ -87,6 +88,7 @@ def _invoke_runner(
         task_id: str,
         command: List[str],
         callback_url: Optional[str],
+        queue: Queue
 ):
     """Invokes dbt runner with `command`, update task state if any exception is
     raised.
@@ -96,7 +98,8 @@ def _invoke_runner(
         task_id: Task id, it's required to update task state.
         command: Dbt invocation command list.
         callback_url: If set, if core raises any error, a callback will be
-            triggered."""
+            triggered.
+        queue: Used to send the result back to the main process."""
 
     # Currently dbt-core does two things that necessitate this chdir logic:
     # 1. If a command is run before deps, a dbt_packages folder is created wherever
@@ -127,6 +130,8 @@ def _invoke_runner(
                     None,
                     callback_url,
                 )
+        serialised_result = jsonable_encoder(result)
+        queue.put(serialised_result)
         logger.info(f"Task with id: {task_id} has completed")
     except Exception as e:
         logger.exception(e)
@@ -195,9 +200,9 @@ def _invoke(
 
     # To support abort, we need to run dbt in a child thread, make parent thread
     # monitor abort signal and join with child thread.
-
+    queue = Queue(maxsize=1)
     p = Process(
-        target=_invoke_runner, args=[task, task_id, command, callback_url]
+        target=_invoke_runner, args=[task, task_id, command, callback_url, queue]
     )
     p.start()
     while p.is_alive():
@@ -216,7 +221,8 @@ def _invoke(
     # If task status is not propagatable, we need to mark it as success manually
     # to trigger callback.
     elif task_status not in PROPAGATE_STATES:
-        _update_state(task, task_id, SUCCESS, {}, callback_url)
+        result = queue.get()
+        _update_state(task, task_id, SUCCESS, result, callback_url)
 
     # Raises Ignore exception to make Celery not automatically set state to
     # SUCCESS.
