@@ -1,6 +1,6 @@
-from dbt_server.services import filesystem_service, dbt_service
+from dbt_server.services import dbt_service
 from dbt_server.exceptions import StateNotFoundException
-from dbt_server.logging import DBT_SERVER_LOGGER as logger
+from dbt_server.log import DBT_SERVER_LOGGER as logger
 from dbt_server import tracer
 
 
@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Optional, Any
 import threading
 
+from dbt_server.services.filesystem_service import FileSystemService, get_path, get_root_path
 
 MANIFEST_LOCK = threading.Lock()
 
@@ -93,6 +94,7 @@ class StateController(object):
         manifest,
         manifest_size,
         is_manifest_cached,
+        filesystem_service: FileSystemService
     ):
         self.state_id = state_id
         self.project_path = project_path
@@ -103,12 +105,13 @@ class StateController(object):
         self.is_manifest_cached = is_manifest_cached
 
         # Serialized manifest.msgpack path.
-        self.serialize_path = filesystem_service.get_path(root_path, "manifest.msgpack")
+        self.serialize_path = get_path(root_path, "manifest.msgpack")
+        self.filesystem_service = filesystem_service
 
     @classmethod
     @tracer.wrap
     def _from_parts(
-        cls, state_id, project_path, manifest, root_path, manifest_size, args=None
+        cls, state_id, project_path, manifest, root_path, manifest_size, filesystem_service
     ):
         """Returns StateController object that stores current dbt core state."""
         return cls(
@@ -118,6 +121,7 @@ class StateController(object):
             manifest=manifest,
             manifest_size=manifest_size,
             is_manifest_cached=False,
+            filesystem_service=filesystem_service
         )
 
     @classmethod
@@ -131,6 +135,7 @@ class StateController(object):
             manifest=cached.manifest,
             manifest_size=cached.manifest_size,
             is_manifest_cached=True,
+            filesystem_service=FileSystemService.create()
         )
 
     @classmethod
@@ -139,7 +144,8 @@ class StateController(object):
         """Loads a manifest from source code in a specified directory based on the
         provided state_id. This method will cache the parsed manifest in memory
         before returning."""
-        root_path = filesystem_service.get_root_path(
+        filesystem_service = FileSystemService.create()
+        root_path = get_root_path(
             parse_args.state_id, parse_args.project_path
         )
         log_details = _generate_log_details(
@@ -156,7 +162,7 @@ class StateController(object):
             manifest,
             root_path,
             0,
-            parse_args,
+            filesystem_service,
         )
 
     @classmethod
@@ -174,6 +180,7 @@ class StateController(object):
             )
             return cls.from_cached(cached)
         # Not in cache - need to go to filesystem to deserialize it
+        filesystem_service = FileSystemService.create()
         state_id = filesystem_service.get_latest_state_id(args.state_id)
 
         project_path = args.project_path if hasattr(args, "project_path") else None
@@ -190,34 +197,17 @@ class StateController(object):
                 f"Provided state_id does not exist, no previous state_id or project_path found {_generate_log_details(state_id, project_path)}"
             )
 
-        root_path = filesystem_service.get_root_path(state_id, project_path)
+        root_path = get_root_path(state_id, project_path)
 
         # Don't cache on deserialize - that's only for /parse
-        manifest_path = filesystem_service.get_path(root_path, "manifest.msgpack")
+        manifest_path = get_path(root_path, "manifest.msgpack")
         logger.info(f"Loading manifest from file system ({manifest_path})")
         manifest = dbt_service.deserialize_manifest(manifest_path)
         manifest_size = filesystem_service.get_size(manifest_path)
 
         return cls._from_parts(
-            state_id, project_path, manifest, root_path, manifest_size, args
+            state_id, project_path, manifest, root_path, manifest_size, filesystem_service
         )
-
-    @classmethod
-    @tracer.wrap
-    def load_state_async(cls, args=None):
-        """Temporary slimmed down load state to be used in testing /async/dbt endpoint with only a project_path"""
-        project_path = args.project_path if hasattr(args, "project_path") else None
-        if not project_path:
-            project_path = filesystem_service.get_latest_project_path()
-
-        if project_path is None:
-            raise StateNotFoundException(
-                f"No project_path found {_generate_log_details(None, project_path)}"
-            )
-
-        root_path = filesystem_service.get_root_path(None, project_path)
-
-        return cls._from_parts(None, project_path, None, root_path, 0, args)
 
     @tracer.wrap
     def serialize_manifest(self):
@@ -225,21 +215,21 @@ class StateController(object):
         path, updates manifest_size to the file size."""
         logger.info(f"Serializing manifest to file system ({self.serialize_path})")
         dbt_service.serialize_manifest(self.manifest, self.serialize_path)
-        self.manifest_size = filesystem_service.get_size(self.serialize_path)
+        self.manifest_size = self.filesystem_service.get_size(self.serialize_path)
 
     @tracer.wrap
     def _update_state_id(self):
         """If current state_id != None, persists it into local storage."""
         if self.state_id is not None:
             logger.info(f"Updating latest state id ({self.state_id})")
-            filesystem_service.update_state_id(self.state_id)
+            self.filesystem_service.update_state_id(self.state_id)
 
     @tracer.wrap
     def _update_project_path(self):
         """If current project_path != None, persists it into local storage."""
         if self.project_path is not None:
             logger.info(f"Updating latest project path ({self.project_path})")
-            filesystem_service.update_project_path(self.project_path)
+            self.filesystem_service.update_project_path(self.project_path)
 
     @tracer.wrap
     def update_cache(self):
@@ -259,7 +249,7 @@ class StateController(object):
         )
 
 
-def _generate_log_details(state_id: str, project_path: str):
+def _generate_log_details(state_id: Optional[str], project_path: Optional[str]):
     """Helper function to generate a log string including `state_id` and
     `project_path`.
     """

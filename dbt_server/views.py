@@ -21,8 +21,8 @@ from typing import List, Optional, Dict, Any
 from copy import deepcopy
 
 from dbt_server import tracer
-from dbt_server.services import filesystem_service
-from dbt_server.logging import DBT_SERVER_LOGGER as logger
+from dbt_server.log import DBT_SERVER_LOGGER as logger
+from dbt_server.services.filesystem_service import get_log_path, get_root_path, FileSystemService
 from dbt_server.state import StateController
 from dbt_server.services import dbt_service
 
@@ -182,7 +182,7 @@ def _list_all_task_ids() -> List[str]:
         )
 
 
-@app.post("/ready")
+@app.get("/ready")
 async def ready():
     return JSONResponse(status_code=200, content={})
 
@@ -190,6 +190,7 @@ async def ready():
 @app.post("/push")
 def push_unparsed_manifest(args: PushProjectArgs):
     # Parse / validate it
+    filesystem_service = FileSystemService.create()
     previous_state_id = filesystem_service.get_latest_state_id(None)
     state_id = filesystem_service.get_latest_state_id(args.state_id)
 
@@ -197,7 +198,7 @@ def push_unparsed_manifest(args: PushProjectArgs):
     size_in_bytes = sum(len(file.contents) for file in args.body.values())
     logger.info(f"Recieved manifest {size_in_files} files, {size_in_bytes} bytes")
 
-    path = filesystem_service.get_root_path(state_id)
+    path = get_root_path(state_id)
     reuse = True
 
     # Stupid example of reusing an existing manifest
@@ -328,7 +329,7 @@ async def post_invocation(args: PostInvocationRequest):
         task_id=task_id,
         log_path=None
         if is_command_has_log_path(command)
-        else filesystem_service.get_log_path(task_id, None),
+        else get_log_path(task_id, None),
     )
     return JSONResponse(
         status_code=200,
