@@ -21,10 +21,9 @@ from typing import List, Optional, Dict, Any
 from copy import deepcopy
 
 from dbt_server import tracer
-from dbt_server.log import DBT_SERVER_LOGGER as logger
-from dbt_server.services.filesystem_service import get_log_path, get_root_path, filesystem_service
+from dbt_server.logging import DBT_SERVER_LOGGER as logger
 from dbt_server.state import StateController
-from dbt_server.services import dbt_service
+from dbt_server.services import dbt_service, filesystem_service
 
 from dbt_server.exceptions import (
     InvalidConfigurationException,
@@ -197,7 +196,7 @@ def push_unparsed_manifest(args: PushProjectArgs):
     size_in_bytes = sum(len(file.contents) for file in args.body.values())
     logger.info(f"Recieved manifest {size_in_files} files, {size_in_bytes} bytes")
 
-    path = get_root_path(state_id)
+    path = filesystem_service.get_root_path(state_id)
     reuse = True
 
     # Stupid example of reusing an existing manifest
@@ -328,7 +327,7 @@ async def post_invocation(args: PostInvocationRequest):
         task_id=task_id,
         log_path=None
         if is_command_has_log_path(command)
-        else get_log_path(task_id, None),
+        else filesystem_service.get_log_path(task_id, None),
     )
     return JSONResponse(
         status_code=200,

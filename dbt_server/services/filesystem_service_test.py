@@ -1,15 +1,22 @@
-from fsspec.implementations.local import LocalFileSystem
-
 from dbt_server.exceptions import StateNotFoundException
 from dbt_server.services.filesystem_service import get_working_dir
 from dbt_server.services.filesystem_service import get_target_path
 from dbt_server.services.filesystem_service import get_root_path
 from dbt_server.services.filesystem_service import get_task_artifacts_path
 from dbt_server.services.filesystem_service import get_log_path
+from dbt_server.services.filesystem_service import get_db_path
 from dbt_server.services.filesystem_service import get_latest_state_file_path
 from dbt_server.services.filesystem_service import get_latest_project_path_file_path
 from dbt_server.services.filesystem_service import get_path
-from dbt_server.services.filesystem_service import FileSystemService
+from dbt_server.services.filesystem_service import get_size
+from dbt_server.services.filesystem_service import write_file
+from dbt_server.services.filesystem_service import copy_file
+from dbt_server.services.filesystem_service import read_serialized_manifest
+from dbt_server.services.filesystem_service import write_unparsed_manifest_to_disk
+from dbt_server.services.filesystem_service import get_latest_state_id
+from dbt_server.services.filesystem_service import get_latest_project_path
+from dbt_server.services.filesystem_service import update_state_id
+from dbt_server.services.filesystem_service import update_project_path
 from os import makedirs
 from os import environ
 from os import path
@@ -31,10 +38,6 @@ class TestFile:
 
 
 class TestCachedManifest(TestCase):
-
-    def setUp(self) -> None:
-        self.file_system_service = FileSystemService(LocalFileSystem())
-
     def tearDown(self) -> None:
         if "__DBT_WORKING_DIR" in environ:
             del environ["__DBT_WORKING_DIR"]
@@ -92,6 +95,23 @@ class TestCachedManifest(TestCase):
             path.abspath("./working-dir/state-test_state/task_id/dbt.log"),
         )
 
+    def test_get_db_path(self):
+        # New directory.
+        with TemporaryDirectory() as temp_dir:
+            test_working_dir = path.join(temp_dir, "test_path")
+            environ["__DBT_WORKING_DIR"] = test_working_dir
+            self.assertEqual(
+                get_db_path(), path.abspath(f"{test_working_dir}/sql_app.db")
+            )
+            self.assertTrue(path.isdir(test_working_dir))
+            del environ["__DBT_WORKING_DIR"]
+
+        # Existing directory.
+        with TemporaryDirectory() as temp_dir:
+            environ["__DBT_WORKING_DIR"] = temp_dir
+            self.assertEqual(get_db_path(), path.abspath(f"{temp_dir}/sql_app.db"))
+            del environ["__DBT_WORKING_DIR"]
+
     def test_get_latest_state_file_path(self):
         self.assertEqual(
             get_latest_state_file_path(),
@@ -112,20 +132,20 @@ class TestCachedManifest(TestCase):
             test_file_path = path.join(temp_dir, "a.txt")
             with open(test_file_path, "w") as test_file:
                 test_file.write(TEST_STRING)
-            self.assertEqual(self.file_system_service.get_size(test_file_path), len(TEST_STRING))
+            self.assertEqual(get_size(test_file_path), len(TEST_STRING))
 
     def test_write_file(self):
         # New directory.
         with TemporaryDirectory() as temp_dir:
             test_write_path = path.join(temp_dir, "test_path", "a.txt")
-            self.file_system_service.write_file(test_write_path, TEST_STRING)
+            write_file(test_write_path, TEST_STRING)
             with open(test_write_path, "r") as input_file:
                 self.assertEqual(input_file.read(), TEST_STRING)
 
         # Existing directory.
         with TemporaryDirectory() as temp_dir:
             test_write_path = path.join(temp_dir, "a.txt")
-            self.file_system_service.write_file(test_write_path, TEST_STRING)
+            write_file(test_write_path, TEST_STRING)
             with open(test_write_path, "r") as input_file:
                 self.assertEqual(input_file.read(), TEST_STRING)
 
@@ -136,12 +156,12 @@ class TestCachedManifest(TestCase):
                 source_file.write(TEST_STRING)
             # New directory.
             dest_path = path.join(temp_dir, "a", "a.txt")
-            self.file_system_service.copy_file(source_path, dest_path)
+            copy_file(source_path, dest_path)
             with open(dest_path, "r") as input_file:
                 self.assertEqual(input_file.read(), TEST_STRING)
             # Existing directory.
             dest_path = path.join(temp_dir, "b.txt")
-            self.file_system_service.copy_file(source_path, dest_path)
+            copy_file(source_path, dest_path)
             with open(dest_path, "r") as input_file:
                 self.assertEqual(input_file.read(), TEST_STRING)
 
@@ -152,18 +172,18 @@ class TestCachedManifest(TestCase):
             with open(file_path, "w") as input_file:
                 input_file.write(TEST_STRING)
             self.assertEqual(
-                self.file_system_service.read_serialized_manifest(file_path), TEST_STRING.encode("utf-8")
+                read_serialized_manifest(file_path), TEST_STRING.encode("utf-8")
             )
             # Not found.
             with self.assertRaises(StateNotFoundException) as _:
-                self.file_system_service.read_serialized_manifest("unknown_path")
+                read_serialized_manifest("unknown_path")
 
     def test_write_unparsed_manifest_to_disk_none_previous_state(self):
         test_file = TestFile()
         test_file.contents = TEST_STRING
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
-            self.file_system_service.write_unparsed_manifest_to_disk(TEST_STATE_ID, None, {"a.txt": test_file})
+            write_unparsed_manifest_to_disk(TEST_STATE_ID, None, {"a.txt": test_file})
             with open(
                 path.join(temp_dir, f"state-{TEST_STATE_ID}", "a.txt"), "r"
             ) as output_file:
@@ -174,7 +194,7 @@ class TestCachedManifest(TestCase):
         test_file.contents = TEST_STRING
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
-            self.file_system_service.write_unparsed_manifest_to_disk(
+            write_unparsed_manifest_to_disk(
                 TEST_STATE_ID, TEST_STATE_ID, {"a.txt": test_file}
             )
             with open(
@@ -182,7 +202,7 @@ class TestCachedManifest(TestCase):
             ) as output_file:
                 self.assertEqual(output_file.read(), TEST_STRING)
 
-    @mock.patch("dbt_server.services.filesystem_service.FileSystemService.copy_file")
+    @mock.patch("dbt_server.services.filesystem_service.copy_file")
     def test_write_unparsed_manifest_to_disk_missing_previous_manifest(
         self, mock_copy_file
     ):
@@ -190,7 +210,7 @@ class TestCachedManifest(TestCase):
         test_file.contents = TEST_STRING
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
-            self.file_system_service.write_unparsed_manifest_to_disk(
+            write_unparsed_manifest_to_disk(
                 TEST_STATE_ID, TEST_PREVIOUS_STATE_ID, {"a.txt": test_file}
             )
             with open(
@@ -199,7 +219,7 @@ class TestCachedManifest(TestCase):
                 self.assertEqual(output_file.read(), TEST_STRING)
             mock_copy_file.assert_not_called()
 
-    @mock.patch("dbt_server.services.filesystem_service.FileSystemService.copy_file")
+    @mock.patch("dbt_server.services.filesystem_service.copy_file")
     def test_write_unparsed_manifest_to_disk_copy_previous_manifest(
         self, mock_copy_file
     ):
@@ -219,7 +239,7 @@ class TestCachedManifest(TestCase):
             with open(previous_parse_path, "w") as previous_manifest_file:
                 previous_manifest_file.write(TEST_MANIFEST)
             environ["__DBT_WORKING_DIR"] = temp_dir
-            self.file_system_service.write_unparsed_manifest_to_disk(
+            write_unparsed_manifest_to_disk(
                 TEST_STATE_ID, TEST_PREVIOUS_STATE_ID, {"a.txt": test_file}
             )
             with open(
@@ -232,38 +252,38 @@ class TestCachedManifest(TestCase):
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
             # State id passed in.
-            self.assertEqual(self.file_system_service.get_latest_state_id(TEST_STATE_ID), TEST_STATE_ID)
+            self.assertEqual(get_latest_state_id(TEST_STATE_ID), TEST_STATE_ID)
             # Missing local persisted state id.
-            self.assertIsNone(self.file_system_service.get_latest_state_id(None))
+            self.assertIsNone(get_latest_state_id(None))
             # Has local persisted state id.
             with open(path.join(temp_dir, "latest-state-id.txt"), "w") as state_file:
                 state_file.write(TEST_STATE_ID)
-            self.assertEqual(self.file_system_service.get_latest_state_id(None), TEST_STATE_ID)
+            self.assertEqual(get_latest_state_id(None), TEST_STATE_ID)
 
     def test_get_latest_project_path(self):
         # Has local persisted project path.
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
             # Missing local persisted project path.
-            self.assertIsNone(self.file_system_service.get_latest_project_path())
+            self.assertIsNone(get_latest_project_path())
             # Found local persisted project path.
             with open(
                 path.join(temp_dir, "latest-project-path.txt"), "w"
             ) as project_file:
                 project_file.write(TEST_PROJECT_PATH)
-            self.assertEqual(self.file_system_service.get_latest_project_path(), TEST_PROJECT_PATH)
+            self.assertEqual(get_latest_project_path(), TEST_PROJECT_PATH)
 
     def test_update_state_id(self):
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
-            self.file_system_service.update_state_id(TEST_STATE_ID)
+            update_state_id(TEST_STATE_ID)
             with open(path.join(temp_dir, "latest-state-id.txt"), "r") as state_file:
                 self.assertEqual(state_file.read(), TEST_STATE_ID)
 
     def test_update_project_path(self):
         with TemporaryDirectory() as temp_dir:
             environ["__DBT_WORKING_DIR"] = temp_dir
-            self.file_system_service.update_project_path(TEST_PROJECT_PATH)
+            update_project_path(TEST_PROJECT_PATH)
             with open(
                 path.join(temp_dir, "latest-project-path.txt"), "r"
             ) as project_path_file:

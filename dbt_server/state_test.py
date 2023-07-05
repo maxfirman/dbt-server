@@ -1,7 +1,4 @@
-import os
-
 from dbt_server.exceptions import StateNotFoundException
-from dbt_server.services.filesystem_service import filesystem_service
 from dbt_server.state import LAST_PARSED
 from dbt_server.state import CachedManifest
 from dbt_server.state import StateController
@@ -11,7 +8,7 @@ from unittest import mock
 
 TEST_STATE_ID = "test_state"
 TEST_PROJECT_PATH = "test_project_path"
-TEST_ROOT_PATH = os.path.join(os.getcwd(), "test_project_path")
+TEST_ROOT_PATH = "test_root_path"
 TEST_MANIFEST_FILE = "test_root_path/manifest.msgpack"
 TEST_PARTIAL_PARSE_FILE = "partial.msgpack"
 TEST_MANIFEST = "test_manifest"
@@ -107,7 +104,6 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 True,
-                filesystem_service,
             ),
         )
 
@@ -133,7 +129,6 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 0,  # manifest_size
                 False,
-                filesystem_service,
             ),
         )
         mock_get_root_path.assert_called_once_with(TEST_STATE_ID, TEST_PROJECT_PATH)
@@ -151,7 +146,6 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 True,
-                filesystem_service,
             ),
         )
 
@@ -167,15 +161,14 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 True,
-                filesystem_service,
             ),
         )
 
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_latest_state_id", return_value=None
+        "dbt_server.services.filesystem_service.get_latest_state_id", return_value=None
     )
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_latest_project_path",
+        "dbt_server.services.filesystem_service.get_latest_project_path",
         return_value=None,
     )
     def test_load_state_no_cache_state_id_missing(
@@ -188,14 +181,14 @@ class TestStateController(TestCase):
             mock_get_latest_project_path.assert_called_once_with()
 
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_latest_state_id", return_value=None
+        "dbt_server.services.filesystem_service.get_latest_state_id", return_value=None
     )
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_latest_project_path",
+        "dbt_server.services.filesystem_service.get_latest_project_path",
         return_value=TEST_PROJECT_PATH,
     )
     @mock.patch(
-        "dbt_server.state.get_root_path",
+        "dbt_server.services.filesystem_service.get_root_path",
         return_value=TEST_ROOT_PATH,
     )
     @mock.patch(
@@ -203,7 +196,7 @@ class TestStateController(TestCase):
         return_value=TEST_MANIFEST,
     )
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_size",
+        "dbt_server.services.filesystem_service.get_size",
         return_value=TEST_MANIFEST_SIZE,
     )
     def test_load_state_no_cache_has_project_path(
@@ -225,7 +218,6 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 False,
-                filesystem_service,
             ),
         )
         mock_get_root_path.assert_called_once_with(None, TEST_PROJECT_PATH)
@@ -235,11 +227,11 @@ class TestStateController(TestCase):
         mock_get_size.assert_called_once_with(TEST_MANIFEST_FILE)
 
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_latest_state_id",
+        "dbt_server.services.filesystem_service.get_latest_state_id",
         return_value=TEST_STATE_ID,
     )
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_latest_project_path",
+        "dbt_server.services.filesystem_service.get_latest_project_path",
         return_value=None,
     )
     @mock.patch(
@@ -251,7 +243,7 @@ class TestStateController(TestCase):
         return_value=TEST_MANIFEST,
     )
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_size",
+        "dbt_server.services.filesystem_service.get_size",
         return_value=TEST_MANIFEST_SIZE,
     )
     def test_load_state_no_cache_has_state_id(
@@ -273,7 +265,6 @@ class TestStateController(TestCase):
                 TEST_MANIFEST,
                 TEST_MANIFEST_SIZE,
                 False,
-                filesystem_service,
             ),
         )
         mock_get_root_path.assert_called_once_with(TEST_STATE_ID, None)
@@ -286,21 +277,22 @@ class TestStateController(TestCase):
         "dbt_server.services.dbt_service.serialize_manifest", return_value=TEST_MANIFEST
     )
     @mock.patch(
-        "dbt_server.services.filesystem_service.FileSystemService.get_size",
+        "dbt_server.services.filesystem_service.get_size",
         return_value=TEST_MANIFEST_SIZE,
     )
     def test_serialize_manifest(self, mock_get_size, mock_serialize_manifest):
+
         serialized_path = f"{TEST_ROOT_PATH}/manifest.msgpack"
         state_controller = StateController(
-            None, None, TEST_ROOT_PATH, TEST_MANIFEST, None, None, filesystem_service
+            None, None, TEST_ROOT_PATH, TEST_MANIFEST, None, None
         )
         state_controller.serialize_manifest()
         self.assertEqual(state_controller.manifest_size, TEST_MANIFEST_SIZE)
         mock_serialize_manifest.assert_called_once_with(TEST_MANIFEST, serialized_path)
         mock_get_size.assert_called_once_with(serialized_path)
 
-    @mock.patch("dbt_server.services.filesystem_service.FileSystemService.update_state_id")
-    @mock.patch("dbt_server.services.filesystem_service.FileSystemService.update_project_path")
+    @mock.patch("dbt_server.services.filesystem_service.update_state_id")
+    @mock.patch("dbt_server.services.filesystem_service.update_project_path")
     def test_update_cache_state_id(
         self, mock_update_project_path, mock_update_state_id
     ):
@@ -311,15 +303,14 @@ class TestStateController(TestCase):
             TEST_MANIFEST,
             TEST_MANIFEST_SIZE,
             False,
-            filesystem_service,
         )
         state_controller.update_cache()
         mock_update_project_path.assert_not_called()
         mock_update_state_id.assert_called_once_with(TEST_STATE_ID)
         self.assertEqual(LAST_PARSED, _get_test_cache(TEST_STATE_ID, None))
 
-    @mock.patch("dbt_server.services.filesystem_service.FileSystemService.update_state_id")
-    @mock.patch("dbt_server.services.filesystem_service.FileSystemService.update_project_path")
+    @mock.patch("dbt_server.services.filesystem_service.update_state_id")
+    @mock.patch("dbt_server.services.filesystem_service.update_project_path")
     def test_update_cache_project_path(
         self, mock_update_project_path, mock_update_state_id
     ):
@@ -330,7 +321,6 @@ class TestStateController(TestCase):
             TEST_MANIFEST,
             TEST_MANIFEST_SIZE,
             False,
-            filesystem_service,
         )
         state_controller.update_cache()
         mock_update_state_id.assert_not_called()

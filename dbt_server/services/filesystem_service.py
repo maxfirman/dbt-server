@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from dbt_server.exceptions import StateNotFoundException
 from dbt_server import tracer
 
-from fsspec import AbstractFileSystem, filesystem
+import fsspec
 
 from dbt_server.flags import FSSPEC_PROTOCOL
 
@@ -15,6 +15,9 @@ DEFAULT_TARGET_DIR = "./target"
 DATABASE_FILE_NAME = "sql_app.db"
 # This is defined in dbt-core-- dir path is configurable but not filename
 DBT_LOG_FILE_NAME = "dbt.log"
+
+filesystem = fsspec.filesystem(FSSPEC_PROTOCOL.get())
+
 
 #
 # File system tree structure.
@@ -118,6 +121,15 @@ def get_log_path(task_id, state_id=None):
     return os.path.join(artifacts_path, DBT_LOG_FILE_NAME)
 
 
+def get_db_path():
+    """Returns local metadata database data file path. Creates directory if
+    not existed."""
+    working_dir = get_working_dir()
+    path = os.path.abspath(os.path.join(working_dir, DATABASE_FILE_NAME))
+    _ensure_dir_exists(path)
+    return path
+
+
 def get_latest_state_file_path():
     """Returns local recorded dbt-server lastest state id file path."""
     working_dir = get_working_dir()
@@ -134,132 +146,130 @@ def get_path(*path_parts):
     return os.path.join(*path_parts)
 
 
-@dataclass
-class FileSystemService:
-    fs: AbstractFileSystem
+@tracer.wrap
+def get_size(path: str):
+    """Returns file size specified by `path`."""
+    return filesystem.size(path)
 
-    @classmethod
-    def create(cls, protocol: str) -> "FileSystemService":
-        return cls(filesystem(protocol))
 
-    @tracer.wrap
-    def get_size(self, path: str):
-        """Returns file size specified by `path`."""
-        return self.fs.size(path)
+@tracer.wrap
+def _ensure_dir_exists(path: str):
+    """Check directory of `path` exists, if not make new directory
+    recursively."""
+    dirname = os.path.dirname(path)
+    if not filesystem.exists(dirname):
+        filesystem.makedirs(dirname)
 
-    @tracer.wrap
-    def _ensure_dir_exists(self, path: str):
-        """Check directory of `path` exists, if not make new directory
-        recursively."""
-        dirname = os.path.dirname(path)
-        if not self.fs.exists(dirname):
-            os.makedirs(dirname)
 
-    @tracer.wrap
-    def write_file(self, path: str, contents: str):
-        """Writes `contents` encoded as utf-8 into `path`. The direcory of `path`
-        will be created recursively if not existed."""
-        self._ensure_dir_exists(path)
+@tracer.wrap
+def write_file(path: str, contents: str):
+    """Writes `contents` encoded as utf-8 into `path`. The direcory of `path`
+    will be created recursively if not existed."""
+    _ensure_dir_exists(path)
 
-        with open(path, "wb") as fh:
-            if isinstance(contents, str):
-                contents = contents.encode("utf-8")
-            fh.write(contents)
+    with filesystem.open(path, "wb") as fh:
+        if isinstance(contents, str):
+            contents = contents.encode("utf-8")
+        fh.write(contents)
 
-    @tracer.wrap
-    def copy_file(self, source_path: str, dest_path: str):
-        """Copies file from `source_path` to `dest_path`. The directory of
-        `dest_path` will be created recursively if it doesn't exist."""
-        self._ensure_dir_exists(dest_path)
-        shutil.copyfile(source_path, dest_path)
 
-    @tracer.wrap
-    def read_serialized_manifest(self, path: str):
-        """Returns serialized manifest file from `path`.
+@tracer.wrap
+def copy_file(source_path: str, dest_path: str):
+    """Copies file from `source_path` to `dest_path`. The directory of
+    `dest_path` will be created recursively if it doesn't exist."""
+    _ensure_dir_exists(dest_path)
+    shutil.copyfile(source_path, dest_path)
 
-        Raises:
-            StateNotFoundException: if file is not found.
-        """
-        try:
-            with open(path, "rb") as fh:
-                return fh.read()
-        except FileNotFoundError as e:
-            raise StateNotFoundException(e)
 
-    @tracer.wrap
-    def write_unparsed_manifest_to_disk(
-        self, state_id: str, previous_state_id: str, filedict: dict
-    ):
-        """Writes files in `filedict` to root path specified by `state_id`, then
-        copies previous partial parsed msgpack to current root path.
+@tracer.wrap
+def read_serialized_manifest(path: str):
+    """Returns serialized manifest file from `path`.
 
-        Args:
-            state_id: required to get root path.
-            previous_state_id: if it's none, we'll skip copy previous partial parsed
-                msgpack to current root path.
-            filedict: key is file name and value is FileInfo."""
-        root_path = get_root_path(state_id)
-        if self.fs.exists(root_path):
-            shutil.rmtree(root_path)
+    Raises:
+        StateNotFoundException: if file is not found.
+    """
+    try:
+        with filesystem.open(path, "rb") as fh:
+            return fh.read()
+    except FileNotFoundError as e:
+        raise StateNotFoundException(e)
 
-        for filename, file_info in filedict.items():
-            path = get_path(root_path, filename)
-            self.write_file(path, file_info.contents)
 
-        if previous_state_id and state_id != previous_state_id:
-            #  TODO: The target folder is usually created during command runs and won't exist on push/parse
-            #  of a new state. It can also be named by env var or flag -- hardcoding as this will change
-            #  with the click API work. This bypasses the DBT_TARGET_PATH env var.
-            previous_partial_parse_path = get_path(
-                get_root_path(previous_state_id), "target", PARTIAL_PARSE_FILE
-            )
-            new_partial_parse_path = get_path(root_path, "target", PARTIAL_PARSE_FILE)
-            if not self.fs.exists(previous_partial_parse_path):
-                return
-            self.copy_file(previous_partial_parse_path, new_partial_parse_path)
+@tracer.wrap
+def write_unparsed_manifest_to_disk(
+    state_id: str, previous_state_id: str, filedict: dict
+):
+    """Writes files in `filedict` to root path specified by `state_id`, then
+    copies previous partial parsed msgpack to current root path.
 
-    @tracer.wrap
-    def get_latest_state_id(self, state_id: str):
-        """Returns dbt-server latest processed state id.
+    Args:
+        state_id: required to get root path.
+        previous_state_id: if it's none, we'll skip copy previous partial parsed
+            msgpack to current root path.
+        filedict: key is file name and value is FileInfo."""
+    root_path = get_root_path(state_id)
+    if filesystem.exists(root_path):
+        filesystem.rm(root_path, recursive=True)
 
-        Args:
-            state_id: if `state_id` is none, returns state id from local persisted
-                storage, otherwise returns `state_id` directly.
-        """
-        if not state_id:
-            path = os.path.abspath(get_latest_state_file_path())
-            if not self.fs.exists(path):
-                return None
-            with self.fs.open(path, "r") as latest_path_file:
-                state_id = latest_path_file.read().strip()
-        return state_id
+    for filename, file_info in filedict.items():
+        path = get_path(root_path, filename)
+        write_file(path, file_info.contents)
 
-    @tracer.wrap
-    def get_latest_project_path(self):
-        """Returns dbt-server latest processed project path, read from local
-        persisted storage. Returns None if not found."""
-        path = os.path.abspath(get_latest_project_path_file_path())
-        if not self.fs.exists(path):
-            return None
-        with self.fs.open(path, "r") as latest_path_file:
-            project_path = latest_path_file.read().strip()
-        return project_path
+    if previous_state_id and state_id != previous_state_id:
+        #  TODO: The target folder is usually created during command runs and won't exist on push/parse
+        #  of a new state. It can also be named by env var or flag -- hardcoding as this will change
+        #  with the click API work. This bypasses the DBT_TARGET_PATH env var.
+        previous_partial_parse_path = get_path(
+            get_root_path(previous_state_id), "target", PARTIAL_PARSE_FILE
+        )
+        new_partial_parse_path = get_path(root_path, "target", PARTIAL_PARSE_FILE)
+        if not filesystem.exists(previous_partial_parse_path):
+            return
+        copy_file(previous_partial_parse_path, new_partial_parse_path)
 
-    @tracer.wrap
-    def update_state_id(self, state_id: str):
-        """Updates local persisted `state_id`."""
+
+@tracer.wrap
+def get_latest_state_id(state_id: str):
+    """Returns dbt-server latest processed state id.
+
+    Args:
+        state_id: if `state_id` is none, returns state id from local persisted
+            storage, otherwise returns `state_id` directly.
+    """
+    if not state_id:
         path = os.path.abspath(get_latest_state_file_path())
-        self._ensure_dir_exists(path)
-        with self.fs.open(path, "w+") as latest_path_file:
-            latest_path_file.write(state_id)
-
-    @tracer.wrap
-    def update_project_path(self, project_path: str):
-        """Updates local persisted `project_path`."""
-        path = os.path.abspath(get_latest_project_path_file_path())
-        self._ensure_dir_exists(path)
-        with self.fs.open(path, "w+") as latest_path_file:
-            latest_path_file.write(project_path)
+        if not filesystem.exists(path):
+            return None
+        with filesystem.open(path, "r") as latest_path_file:
+            state_id = latest_path_file.read().strip()
+    return state_id
 
 
-filesystem_service = FileSystemService.create(FSSPEC_PROTOCOL.get())
+@tracer.wrap
+def get_latest_project_path():
+    """Returns dbt-server latest processed project path, read from local
+    persisted storage. Returns None if not found."""
+    path = os.path.abspath(get_latest_project_path_file_path())
+    if not filesystem.exists(path):
+        return None
+    with filesystem.open(path, "r") as latest_path_file:
+        project_path = latest_path_file.read().strip()
+    return project_path
+
+
+@tracer.wrap
+def update_state_id(state_id: str):
+    """Updates local persisted `state_id`."""
+    path = os.path.abspath(get_latest_state_file_path())
+    _ensure_dir_exists(path)
+    with filesystem.open(path, "w+") as latest_path_file:
+        latest_path_file.write(state_id)
+
+
+@tracer.wrap
+def update_project_path(project_path: str):
+    """Updates local persisted `project_path`."""
+    path = os.path.abspath(get_latest_project_path_file_path())
+    _ensure_dir_exists(path)
+    with filesystem.open(path, "w+") as latest_path_file:
+        latest_path_file.write(project_path)

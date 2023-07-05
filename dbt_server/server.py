@@ -4,10 +4,9 @@ from pydantic import BaseModel
 from dbt_server import tracer  # noqa
 
 from dbt_server.flags import WORKSPACE_ID
-from dbt_server.services import dbt_service
-from dbt_server.services.filesystem_service import filesystem_service, get_root_path, get_path
+from dbt_server.services import dbt_service, filesystem_service
 from dbt_server.views import app
-from dbt_server.log import DBT_SERVER_LOGGER as logger, configure_uvicorn_access_log
+from dbt_server.logging import DBT_SERVER_LOGGER as logger, configure_uvicorn_access_log
 from dbt_server.state import LAST_PARSED
 from dbt_server.exceptions import StateNotFoundException
 
@@ -31,7 +30,7 @@ def startup_cache_initialize():
     # Be careful here :)
     latest_state_id = filesystem_service.get_latest_state_id(None)
     latest_project_path = filesystem_service.get_latest_project_path()
-    root_path = get_root_path(latest_state_id, latest_project_path)
+    root_path = filesystem_service.get_root_path(latest_state_id, latest_project_path)
 
     if root_path is None:
         logger.info(
@@ -39,7 +38,7 @@ def startup_cache_initialize():
         )
         return
 
-    manifest_path = get_path(root_path, "manifest.msgpack")
+    manifest_path = filesystem_service.get_path(root_path, "manifest.msgpack")
     logger.info(f"[STARTUP] Loading manifest from file system (path={root_path})")
 
     try:

@@ -6,7 +6,7 @@ import os
 import signal
 from fastapi.encoders import jsonable_encoder
 from dbt_worker.app import app
-from dbt_server.log import get_configured_celery_logger
+from dbt_server.logging import get_configured_celery_logger
 from dbt_server.services.filesystem_service import get_task_artifacts_path
 
 from celery.contrib.abortable import AbortableTask

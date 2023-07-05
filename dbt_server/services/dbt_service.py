@@ -30,8 +30,8 @@ except (ModuleNotFoundError, ImportError):
 from dbt.contracts.sql import RemoteCompileResult
 
 # dbt Server imports
-from dbt_server.services.filesystem_service import filesystem_service
-from dbt_server.log import DBT_SERVER_LOGGER as logger
+from dbt_server.services import filesystem_service
+from dbt_server.logging import DBT_SERVER_LOGGER as logger
 from dbt_server import tracer
 from dbt.cli.main import dbtRunner
 
