@@ -120,7 +120,7 @@ def _invoke_runner(
             log_path = os.path.join(tmp_dir, task_id)
             command = [LOG_PATH_ARGS, log_path] + command + [PROJECT_DIR_ARGS, tmp_dir]
             result = dbt.invoke(command)
-            filesystem_service.upload(log_path, root_path)
+            filesystem_service.upload(log_path, filesystem_service.get_working_dir())
         # dbt-core 1.5.0-latest changes the return type from a tuple to a
         #  dbtRunnerResult obj and no longer raises exceptions on invoke
         if result and type(result) == dbtRunnerResult and not result.success:
