@@ -1,3 +1,5 @@
+import tempfile
+
 from dbt_server.services import filesystem_service, dbt_service
 from dbt_server.exceptions import StateNotFoundException
 from dbt_server.logging import DBT_SERVER_LOGGER as logger
@@ -145,11 +147,15 @@ class StateController(object):
         log_details = _generate_log_details(
             parse_args.state_id, parse_args.project_path
         )
-        logger.info(f"Parsing manifest from filetree ({log_details})")
 
-        manifest = dbt_service.parse_to_manifest(root_path, parse_args)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            logger.info(f"Copying project from remote filesystem ({log_details})")
+            filesystem_service.download(root_path, tmp_dir)
+            logger.info(f"Parsing manifest from filetree ({log_details})")
+            manifest = dbt_service.parse_to_manifest(tmp_dir, parse_args)
+            logger.info(f"Done parsing from source. Copying manifest back to remote filesystem. {log_details}")
+            filesystem_service.upload(tmp_dir, root_path)
 
-        logger.info(f"Done parsing from source {log_details}")
         return cls._from_parts(
             parse_args.state_id,
             parse_args.project_path,
@@ -201,23 +207,6 @@ class StateController(object):
         return cls._from_parts(
             state_id, project_path, manifest, root_path, manifest_size, args
         )
-
-    @classmethod
-    @tracer.wrap
-    def load_state_async(cls, args=None):
-        """Temporary slimmed down load state to be used in testing /async/dbt endpoint with only a project_path"""
-        project_path = args.project_path if hasattr(args, "project_path") else None
-        if not project_path:
-            project_path = filesystem_service.get_latest_project_path()
-
-        if project_path is None:
-            raise StateNotFoundException(
-                f"No project_path found {_generate_log_details(None, project_path)}"
-            )
-
-        root_path = filesystem_service.get_root_path(None, project_path)
-
-        return cls._from_parts(None, project_path, None, root_path, 0, args)
 
     @tracer.wrap
     def serialize_manifest(self):

@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from typing import List, Optional, Dict, Any
-from copy import deepcopy
 
 from dbt_server import tracer
 from dbt_server.logging import DBT_SERVER_LOGGER as logger
@@ -300,17 +299,15 @@ async def post_invocation(args: PostInvocationRequest):
     if is_command_has_project_dir(args.command):
         raise ValueError("Supplying a --project-dir is unsupported")
     state = StateController.load_state(ProjectLocation())
-    command = deepcopy(args.command)
-    command.extend(['--project-dir', state.root_path])
     task_id = str(uuid4()) if args.task_id is None else args.task_id
     # Manually store PENDING status in backend otherwise we can't tell apart
     # if task_id is missed or haven't been picked up by worker.
     invoke.backend.store_result(task_id, None, PENDING)
 
     try:
-        logger.info(f"Invoke: {command}, task_id: {task_id}")
+        logger.info(f"Invoke: {args.command}, task_id: {task_id}")
         invoke.apply_async(
-            args=[command, args.callback_url], task_id=task_id
+            args=[args.command, state.root_path, args.callback_url], task_id=task_id
         )
     except Exception as e:
         # If invocation is failed, change state to FAILURE. In strange case
@@ -326,7 +323,7 @@ async def post_invocation(args: PostInvocationRequest):
     response = PostInvocationResponse(
         task_id=task_id,
         log_path=None
-        if is_command_has_log_path(command)
+        if is_command_has_log_path(args.command)
         else filesystem_service.get_log_path(task_id, None),
     )
     return JSONResponse(

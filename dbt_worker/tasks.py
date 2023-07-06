@@ -1,3 +1,4 @@
+import tempfile
 from time import sleep, time
 from billiard.context import Process
 from multiprocessing import Queue
@@ -7,7 +8,6 @@ import signal
 from fastapi.encoders import jsonable_encoder
 from dbt_worker.app import app
 from dbt_server.logging import get_configured_celery_logger
-from dbt_server.services.filesystem_service import get_task_artifacts_path
 
 from celery.contrib.abortable import AbortableTask
 from celery.contrib.abortable import ABORTED
@@ -60,11 +60,11 @@ def _send_state_callback(callback_url: str, task_id: str, status: str) -> None:
 
 
 def _update_state(
-        task: Any,
-        task_id: str,
-        state: str,
-        meta: Dict = None,
-        callback_url: Optional[str] = None,
+    task: Any,
+    task_id: str,
+    state: str,
+    meta: Dict = None,
+    callback_url: Optional[str] = None,
 ):
     """Updates task state to `state` with `meta` infomation. Triggers callback
     if `callback_url` is set.
@@ -84,11 +84,12 @@ def _update_state(
 
 
 def _invoke_runner(
-        task: Any,
-        task_id: str,
-        command: List[str],
-        callback_url: Optional[str],
-        queue: Queue
+    task: Any,
+    task_id: str,
+    command: List[str],
+    root_path: str,
+    callback_url: Optional[str],
+    queue: Queue,
 ):
     """Invokes dbt runner with `command`, update task state if any exception is
     raised.
@@ -111,11 +112,15 @@ def _invoke_runner(
     # this chdir hack: https://github.com/dbt-labs/dbt-core/issues/6985
     original_wd = os.getcwd()
     try:
-        # If the project_dir was passed as a command flag, this
-        # value will be none. Command will still run properly,
-        # artifacts may write to incorrect locations
+        from dbt_server.services import filesystem_service
+
         dbt = dbtRunner()
-        result = dbt.invoke(command)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            filesystem_service.download(root_path, tmp_dir)
+            log_path = os.path.join(tmp_dir, task_id)
+            command = [LOG_PATH_ARGS, log_path] + command + [PROJECT_DIR_ARGS, tmp_dir]
+            result = dbt.invoke(command)
+            filesystem_service.upload(log_path, root_path)
         # dbt-core 1.5.0-latest changes the return type from a tuple to a
         #  dbtRunnerResult obj and no longer raises exceptions on invoke
         if result and type(result) == dbtRunnerResult and not result.success:
@@ -152,19 +157,6 @@ def _get_task_status(task: Any, task_id: str):
     return task.AsyncResult(task_id).state
 
 
-def _insert_log_path(command: List[str], task_id: str):
-    """If command doesn't specify log path, insert default log path at start."""
-    # We respect user input log_path.
-    # TODO: Actually need to re-order user input so that log args come before command,
-    # or provide feedback in case of failure so user knows to re-order
-    if is_command_has_log_path(command):
-        return
-    command.insert(0, LOG_PATH_ARGS)
-    command.insert(1, get_task_artifacts_path(task_id, None))
-    command.insert(2, LOG_FORMAT_ARGS)
-    command.insert(3, LOG_FORMAT_DEFAULT)
-
-
 def is_command_has_project_dir(command: List[str]) -> bool:
     """Returns true if command has --project-dir args."""
     # This approach is not 100% accurate but should be good for most cases.
@@ -176,9 +168,10 @@ def raise_exception(*_):
 
 
 def _invoke(
-        task: Any,
-        command: List[str],
-        callback_url: Optional[str] = None,
+    task: Any,
+    command: List[str],
+    root_path: str,
+    callback_url: Optional[str] = None,
 ):
     """Invokes dbt command.
     Args:
@@ -193,7 +186,6 @@ def _invoke(
     # Make sure celery doesn't ignore sigint, re-raise to allow task cancellation
     signal.signal(signal.SIGINT, raise_exception)
 
-    _insert_log_path(command, task_id)
     logger.info(f"Running dbt task ({task_id}) with {command}")
     if callback_url:
         _send_state_callback(callback_url, task_id, STARTED)
@@ -202,7 +194,8 @@ def _invoke(
     # monitor abort signal and join with child thread.
     queue = Queue(maxsize=1)
     p = Process(
-        target=_invoke_runner, args=[task, task_id, command, callback_url, queue]
+        target=_invoke_runner,
+        args=[task, task_id, command, root_path, callback_url, queue],
     )
     p.start()
     while p.is_alive():
@@ -260,8 +253,9 @@ def _handle_abort(task_id, p, callback_url):
 
 @app.task(bind=True, track_started=True, base=AbortableTask)
 def invoke(
-        self,
-        command: List[str],
-        callback_url: Optional[str] = None,
+    self,
+    command: List[str],
+    root_path: str,
+    callback_url: Optional[str] = None,
 ):
-    _invoke(self, command, callback_url)
+    _invoke(self, command, root_path, callback_url)

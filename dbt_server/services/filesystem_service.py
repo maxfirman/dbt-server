@@ -1,12 +1,10 @@
 import os
 import shutil
-from dataclasses import dataclass
-
-from dbt_server.exceptions import StateNotFoundException
-from dbt_server import tracer
 
 import fsspec
 
+from dbt_server import tracer
+from dbt_server.exceptions import StateNotFoundException
 from dbt_server.flags import FSSPEC_PROTOCOL
 
 PARTIAL_PARSE_FILE = "partial_parse.msgpack"
@@ -16,7 +14,7 @@ DATABASE_FILE_NAME = "sql_app.db"
 # This is defined in dbt-core-- dir path is configurable but not filename
 DBT_LOG_FILE_NAME = "dbt.log"
 
-filesystem = fsspec.filesystem(FSSPEC_PROTOCOL.get())
+filesystem: fsspec.AbstractFileSystem = fsspec.filesystem(FSSPEC_PROTOCOL.get())
 
 
 #
@@ -262,7 +260,7 @@ def update_state_id(state_id: str):
     """Updates local persisted `state_id`."""
     path = os.path.abspath(get_latest_state_file_path())
     _ensure_dir_exists(path)
-    with filesystem.open(path, "w+") as latest_path_file:
+    with filesystem.open(path, "w") as latest_path_file:
         latest_path_file.write(state_id)
 
 
@@ -271,5 +269,19 @@ def update_project_path(project_path: str):
     """Updates local persisted `project_path`."""
     path = os.path.abspath(get_latest_project_path_file_path())
     _ensure_dir_exists(path)
-    with filesystem.open(path, "w+") as latest_path_file:
+    with filesystem.open(path, "w") as latest_path_file:
         latest_path_file.write(project_path)
+
+
+def prepend_protocol(path: str) -> str:
+    return f"{filesystem.protocol[0]}:/{path}/"
+
+
+def upload(src: str, dest: str):
+    full_dest = prepend_protocol(dest)
+    filesystem.put(src, full_dest, recursive=True)
+
+
+def download(src: str, dest: str):
+    full_src = prepend_protocol(src)
+    filesystem.get(full_src, dest, recursive=True)
