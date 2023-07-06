@@ -118,8 +118,7 @@ def _invoke_runner(
         with tempfile.TemporaryDirectory() as tmp_dir:
             filesystem_service.download(root_path, tmp_dir)
             log_path = os.path.join(tmp_dir, task_id)
-            command = [LOG_PATH_ARGS, log_path] + command + [PROJECT_DIR_ARGS, tmp_dir]
-            result = dbt.invoke(command)
+            result = dbt.invoke(command, project_dir=tmp_dir, log_path=log_path)
             filesystem_service.upload(log_path, filesystem_service.get_working_dir())
         # dbt-core 1.5.0-latest changes the return type from a tuple to a
         #  dbtRunnerResult obj and no longer raises exceptions on invoke
