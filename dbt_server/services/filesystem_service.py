@@ -5,7 +5,7 @@ import fsspec
 
 from dbt_server import tracer
 from dbt_server.exceptions import StateNotFoundException
-from dbt_server.flags import FSSPEC_PROTOCOL
+from dbt_server.flags import FILESYSTEM_PROTOCOL
 
 PARTIAL_PARSE_FILE = "partial_parse.msgpack"
 DEFAULT_WORKING_DIR = "./working-dir"
@@ -14,7 +14,7 @@ DATABASE_FILE_NAME = "sql_app.db"
 # This is defined in dbt-core-- dir path is configurable but not filename
 DBT_LOG_FILE_NAME = "dbt.log"
 
-filesystem: fsspec.AbstractFileSystem = fsspec.filesystem(FSSPEC_PROTOCOL.get())
+filesystem: fsspec.AbstractFileSystem = fsspec.filesystem(FILESYSTEM_PROTOCOL.get())
 
 
 #

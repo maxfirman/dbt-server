@@ -108,8 +108,5 @@ DBT_TARGET_PATH = EnvironFlag("DBT_TARGET_PATH")
 # Shared with dbt core, indicates if compile allows introspection.
 DBT_ALLOW_INTROSPECTION = EnvironFlag("__DBT_ALLOW_INTROSPECTION")
 
-FSSPEC_PROTOCOL = InMemoryFlag("FSSPEC_PROTOCOL", "file")
-FSSPEC_S3_ENDPOINT_URL = EnvironFlag("FSSPEC_S3_ENDPOINT_URL")
-FSSPEC_S3_KEY = EnvironFlag("FSSPEC_S3_KEY")
-FSSPEC_S3_SECRET = EnvironFlag("FSSPEC_S3_SECRET")
+FILESYSTEM_PROTOCOL = InMemoryFlag("FILESYSTEM_PROTOCOL", "file")
 S3_BUCKET = EnvironFlag("S3_BUCKET")
