@@ -274,7 +274,10 @@ def update_project_path(project_path: str):
 
 
 def prepend_protocol(path: str) -> str:
-    return f"{filesystem.protocol[0]}:/{path}/"
+    protocol = FILESYSTEM_PROTOCOL.get()
+    if protocol != "file":
+        path = path.lstrip("/")
+    return f"{protocol}://{path}/"
 
 
 def upload(src: str, dest: str):
