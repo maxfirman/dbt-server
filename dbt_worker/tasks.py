@@ -63,6 +63,7 @@ def _update_state(
     task: Any,
     task_id: str,
     state: str,
+    event: str,
     meta: Dict = None,
     callback_url: Optional[str] = None,
 ):
@@ -75,10 +76,12 @@ def _update_state(
             celery task.request is a local variable, not shared across thread,
             hence we require task_id to update task state.
         state: Celery worker state.
+        event: Celery event to send.
         callback_url: If set, after state is updated, a callback will be
             triggered."""
 
     task.update_state(task_id=task_id, state=state, meta=meta)
+    task.send_event(event)
     if callback_url:
         _send_state_callback(callback_url, task_id, state)
 
@@ -110,7 +113,6 @@ def _invoke_runner(
     # task artifacts being written relative to the project instead of the server
     # after a deps is called. Once core completes the following ticket, we can remove
     # this chdir hack: https://github.com/dbt-labs/dbt-core/issues/6985
-    original_wd = os.getcwd()
     try:
         from dbt_server.services import filesystem_service
 
@@ -131,6 +133,7 @@ def _invoke_runner(
                     task,
                     task_id,
                     FAILURE,
+                    "task-failed",
                     None,
                     callback_url,
                 )
@@ -143,12 +146,10 @@ def _invoke_runner(
             task,
             task_id,
             FAILURE,
+            "task-failed",
             {"exc_type": type(e).__name__, "exc_message": str(e)},
             callback_url,
         )
-
-    finally:
-        os.chdir(original_wd)
 
 
 def _get_task_status(task: Any, task_id: str):
@@ -214,7 +215,7 @@ def _invoke(
     # to trigger callback.
     elif task_status not in PROPAGATE_STATES:
         result = queue.get()
-        _update_state(task, task_id, SUCCESS, result, callback_url)
+        _update_state(task, task_id, SUCCESS, "task-succeeded", result, callback_url)
 
     # Raises Ignore exception to make Celery not automatically set state to
     # SUCCESS.
