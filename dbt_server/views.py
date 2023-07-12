@@ -1,4 +1,6 @@
 from collections import deque
+from dataclasses import dataclass
+
 import dbt.events.functions
 import os
 import signal
@@ -13,17 +15,14 @@ from fastapi import FastAPI, status
 from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
 from pydantic import BaseModel
-from pydantic import validator
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from typing import List, Optional, Dict, Any
-from copy import deepcopy
 
 from dbt_server import tracer
-from dbt_server.services import filesystem_service
 from dbt_server.logging import DBT_SERVER_LOGGER as logger
 from dbt_server.state import StateController
-from dbt_server.services import dbt_service
+from dbt_server.services import dbt_service, filesystem_service
 
 from dbt_server.exceptions import (
     InvalidConfigurationException,
@@ -35,7 +34,7 @@ from dbt_server.schemas import Invocation
 from dbt_server.schemas import convert_celery_result_to_invocation
 from dbt_server.schemas import get_not_found_invocation
 from dbt_worker.app import app as celery_app
-from dbt_worker.tasks import append_project_dir, invoke, resolve_project_dir
+from dbt_worker.tasks import invoke, is_command_has_project_dir
 from dbt_worker.tasks import is_command_has_log_path
 
 LOG_PATH_ARGS = "--log-path"
@@ -44,7 +43,6 @@ LOG_PATH_ARGS = "--log-path"
 # only a small amount of events to prevent too much memory
 # from being used.
 dbt.events.functions.EVENT_HISTORY = deque(maxlen=10)
-
 
 # Enable `ALLOW_ORCHESTRATED_SHUTDOWN` to instruct dbt server to
 # ignore a first SIGINT or SIGTERM and enable a `/shutdown` endpoint
@@ -93,7 +91,7 @@ class DbtCommandArgs(BaseModel):
 
 @app.exception_handler(InvalidConfigurationException)
 async def configuration_exception_handler(
-    request: Request, exc: InvalidConfigurationException
+        request: Request, exc: InvalidConfigurationException
 ):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     exc_str = f"{exc}".replace("\n", " ").replace("   ", " ")
@@ -137,7 +135,6 @@ async def handled_dbt_error(request: Request, exc: InvalidRequestException):
 
 
 if ALLOW_ORCHESTRATED_SHUTDOWN:
-
     @app.post("/shutdown")
     def shutdown():
         # raising a SIGKILL logs some
@@ -168,7 +165,7 @@ def _list_all_task_ids_redis() -> List[str]:
     # Celery will insert a prefix automatically, we need to remove it.
     celery_prefix = backend.get_key_for_task("")
     return [
-        key_bytes.decode()[len(celery_prefix) :]
+        key_bytes.decode()[len(celery_prefix):]
         for key_bytes in backend.client.keys(key)
     ]
 
@@ -183,7 +180,7 @@ def _list_all_task_ids() -> List[str]:
         )
 
 
-@app.post("/ready")
+@app.get("/ready")
 async def ready():
     return JSONResponse(status_code=200, content={})
 
@@ -275,25 +272,9 @@ class PostInvocationRequest(BaseModel):
     # uniqueness, post multiple invocations with the same task_id will cause
     # undetermined behavior.
     task_id: Optional[str]
-    # Dbt project directory, if set --project-dir args will be appended into
-    # command list. If not set, dbt server will fallback to environment
-    # variable. The process logic is: (top one will override bottom)
-    # - User command --project-dir args. We always respect user input at highest
-    #   priority.
-    # - Request project_dir field. Will append args to input command.
-    # - Dbt server flags from env var(check details in dbt_server/flags.py).
-    #   Will append args to input command.
-    # - Implicit: task worker flag from env var."""
-    project_dir: Optional[str]
     # Optional, if set dbt worker will trigger callback with task id and task
     # status when task status is updated.
     callback_url: Optional[str]
-
-    @validator("project_dir", always=True)
-    def check_project_dir(cls, project_dir, values):
-        resolve_project_dir(values["command"], project_dir)
-        # We don't change incoming request, only validate it.
-        return project_dir
 
 
 class PostInvocationResponse(BaseModel):
@@ -306,21 +287,27 @@ class PostInvocationResponse(BaseModel):
     log_path: Optional[str]
 
 
+@dataclass
+class ProjectLocation:
+    state_id: str = None
+    project_path: str = None
+
+
 @app.post("/invocations")
 async def post_invocation(args: PostInvocationRequest):
     """Accepts user dbt invocation request, creates a task in task queue."""
-    command = deepcopy(args.command)
-    project_dir = resolve_project_dir(command, args.project_dir)
-    append_project_dir(command, args.project_dir)
+    if is_command_has_project_dir(args.command):
+        raise ValueError("Supplying a --project-dir is unsupported")
+    state = StateController.load_state(ProjectLocation())
     task_id = str(uuid4()) if args.task_id is None else args.task_id
     # Manually store PENDING status in backend otherwise we can't tell apart
     # if task_id is missed or haven't been picked up by worker.
     invoke.backend.store_result(task_id, None, PENDING)
 
     try:
-        logger.info(f"Invoke: {command}, task_id: {task_id}")
+        logger.info(f"Invoke: {args.command}, task_id: {task_id}")
         invoke.apply_async(
-            args=[command, project_dir, args.callback_url], task_id=task_id
+            args=[args.command, state.root_path, args.callback_url], task_id=task_id
         )
     except Exception as e:
         # If invocation is failed, change state to FAILURE. In strange case
@@ -336,7 +323,7 @@ async def post_invocation(args: PostInvocationRequest):
     response = PostInvocationResponse(
         task_id=task_id,
         log_path=None
-        if is_command_has_log_path(command)
+        if is_command_has_log_path(args.command)
         else filesystem_service.get_log_path(task_id, None),
     )
     return JSONResponse(

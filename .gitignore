@@ -19,3 +19,5 @@ dbt-core-server-exploration/
 dbt.log
 .DS_Store
 */.user.yml
+.idea
+*.rdb

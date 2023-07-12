@@ -30,6 +30,7 @@ class Invocation(BaseModel):
     # Only exists if state = FAILURE, similar to exc_type, it includes error
     # message of exception.
     exc_message: Optional[str]
+    result: Optional[dict]
 
 
 def get_not_found_invocation(task_id: str):
@@ -40,8 +41,10 @@ def get_not_found_invocation(task_id: str):
 def convert_celery_result_to_invocation(result: Optional[AbortableAsyncResult]):
     """Converts Celery task result to Invocation class given."""
     state = result.state
-    if state in [PENDING, SUCCESS, STARTED, ABORTED]:
+    if state in [PENDING, STARTED, ABORTED]:
         return Invocation(task_id=result.task_id, state=state)
+    elif state == SUCCESS:
+        return Invocation(task_id=result.task_id, state=state, result=result.result)
     elif state == FAILURE:
         exception = result.result
         return Invocation(
