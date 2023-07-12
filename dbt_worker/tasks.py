@@ -49,7 +49,8 @@ def _invoke(
 
         logger.info(f"Executing dbt.invoke for task: {task_id}")
         result = dbt.invoke(args=command, project_dir=tmp_dir, log_path=log_path)
-
+        if result.exception:
+            raise result.exception
         logger.info(f"Uploading logs for task: {task_id}")
         filesystem_service.upload(log_path, filesystem_service.get_working_dir())
 
